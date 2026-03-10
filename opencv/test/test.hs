@@ -212,7 +212,11 @@ main = defaultMain $ testGroup "opencv"
     , testGroup "Video"
       [
       ]
-    , QC.testProperty "getAffineTransform" getAffineTransformProp
+    , QC.testProperty "getAffineTransform" $
+        QC.forAll genNonCollinearTriangle $ \v ->
+        QC.forAll QC.arbitrary $ \v' ->
+        getAffineTransformProp v v'
+    , HU.testCase "getAffineTransform collinear" testGetAffineTransformCollinear
     , HU.testCase "TLS memory leak" $ testTLSMemLeak 50000
     ]
 
@@ -671,7 +675,7 @@ getAffineTransformProp :: V3 (V2 CFloat) -> V3 (V2 CFloat) -> QCProp.Result
 getAffineTransformProp v v' =
     let transfEither = getAffineTransform v v'
     in case transfEither of
-        Left _exception -> QCProp.succeeded
+        Left exception -> failedWithReason $ displayException exception
         Right transf ->
             let m23 = fmap realToFrac <$> fromMat transf
                 newPoints = warpAffineV2 m23 <$> v
@@ -681,6 +685,15 @@ getAffineTransformProp v v' =
                         then QCProp.succeeded
                         else failedWithReason $ "The points are too far apart; newPoints =\n" <> show newPoints <> "\n"
                 Just errs -> failedWithReason . displayException $ CoerceMatError errs
+
+testGetAffineTransformCollinear :: HU.Assertion
+testGetAffineTransformCollinear =
+    case getAffineTransform collinearSrc anyDst of
+      Left _err -> pure ()
+      Right _mat -> assertFailure "expected error for collinear source points"
+  where
+    collinearSrc = V3 (V2 0 0) (V2 1 1) (V2 2 2) :: V3 (V2 CFloat)
+    anyDst       = V3 (V2 0 0) (V2 1 0) (V2 0 1) :: V3 (V2 CFloat)
 
 warpAffineV2 :: (Num a) => M23 a -> V2 a -> V2 a
 warpAffineV2 m23 pt = view _xy (m23 !* homogeneous pt)
@@ -766,6 +779,22 @@ maxSizedPosRange = maxSizedRangeHelper $ \n -> (1, max 1 n)
 -- | Generate V2 Int32 with values small enough to avoid overflow in area()
 genSmallV2 :: QC.Gen (V2 Int32)
 genSmallV2 = V2 <$> QC.choose (-46000, 46000) <*> QC.choose (-46000, 46000)
+
+-- | Generate 3 non-collinear points (triangle with nonzero area)
+genNonCollinearTriangle :: QC.Gen (V3 (V2 CFloat))
+genNonCollinearTriangle = do
+    p1 <- genPt
+    p2 <- genPt
+    p3 <- genPt
+    let V2 x1 y1 = p1
+        V2 x2 y2 = p2
+        V2 x3 y3 = p3
+        area = abs ((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1))
+    if area > 1e-4
+      then pure (V3 p1 p2 p3)
+      else genNonCollinearTriangle
+  where
+    genPt = V2 <$> QC.choose (-100, 100) <*> QC.choose (-100, 100)
 
 --------------------------------------------------------------------------------
 -- QuickCheck Arbitrary Instances
