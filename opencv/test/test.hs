@@ -17,7 +17,6 @@ import "base" Data.Int
 import "base" Data.Proxy
 import "base" Data.Word
 import "base" Data.List.NonEmpty ( nonEmpty )
-import "base" Data.Monoid ( (<>) )
 import "base" Data.Foldable ( for_, toList )
 import "base" Foreign.C.Types ( CFloat(..), CDouble(..) )
 import "base" Foreign.Storable ( Storable )
@@ -510,7 +509,9 @@ testOrbDetectAndCompute = do
         kptsRec  = V.map keyPointAsRec kpts
         kpts2    = V.map mkKeyPoint    kptsRec
         kptsRec2 = V.map keyPointAsRec kpts2
-        numDescs = head $ miShape $ matInfo descs
+        numDescs = case miShape $ matInfo descs of
+            (n:_) -> n
+            []    -> error "unexpected empty shape"
     assertEqual "kpt conversion failure"
                 kptsRec
                 kptsRec2
